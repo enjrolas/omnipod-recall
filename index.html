@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pod Lot Scanner — Omnipod MDC-5-26 Check</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#181f2e; --panel-2:#1f2739; --line:#2b3550;
+    --ink:#eef2fb; --muted:#98a3bd; --accent:#5b8cff;
+    --green:#1fbf6b; --green-ink:#062; --red:#ff4d4d; --amber:#ffb02e; --gray:#7b869c;
+    --radius:16px; --shadow:0 10px 30px rgba(0,0,0,.35);
+    font-synthesis:none; -webkit-text-size-adjust:100%;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:radial-gradient(1200px 600px at 50% -10%, #1a2338 0, var(--bg) 60%), var(--bg);
+    color:var(--ink);
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:max(16px,env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom));
+    display:flex; justify-content:center;
+  }
+  .wrap{width:100%; max-width:560px}
+  header h1{font-size:1.35rem; margin:.2rem 0 .1rem; letter-spacing:-.01em}
+  header p.sub{margin:0 0 14px; color:var(--muted); font-size:.9rem}
+
+  .disclaimer{
+    border:1px solid #6a4b12; background:linear-gradient(180deg,#2a2109,#221b07);
+    color:#ffe6b0; border-radius:var(--radius); padding:14px 16px; margin:0 0 18px;
+    font-size:.92rem;
+  }
+  .disclaimer strong{color:#ffcf6b}
+  .disclaimer a{color:#ffd98a}
+
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:16px; margin-bottom:16px}
+
+  .guide{display:flex; gap:14px; align-items:center; margin:0 0 14px; padding:12px;
+    border:1px solid var(--line); border-radius:12px; background:var(--panel-2)}
+  .guide img{width:112px; height:auto; border-radius:8px; flex:0 0 auto; background:#0a0e17;
+    border:1px solid var(--line)}
+  .guide .g-txt{font-size:.9rem}
+  .guide .g-txt b{color:var(--ink)}
+  .guide .g-txt span{color:var(--muted)}
+  @media (max-width:400px){ .guide img{width:88px} }
+
+  .scanbox{position:relative; aspect-ratio:1/1; width:100%; border-radius:12px; overflow:hidden;
+    background:#0a0e17; border:1px solid var(--line); display:grid; place-items:center}
+  video{width:100%; height:100%; object-fit:cover; display:none}
+  .scanbox.live video{display:block}
+  .reticle{position:absolute; inset:14%; border:2px solid rgba(255,255,255,.5); border-radius:14px;
+    box-shadow:0 0 0 100vmax rgba(0,0,0,.25); pointer-events:none; display:none}
+  .scanbox.live .reticle{display:block}
+  .scanhint{position:absolute; bottom:10px; left:0; right:0; text-align:center; color:#dbe3f5;
+    font-size:.85rem; text-shadow:0 1px 4px #000; pointer-events:none}
+  .placeholder{color:var(--muted); text-align:center; padding:20px; font-size:.95rem}
+  .placeholder svg{width:52px;height:52px;opacity:.6;margin-bottom:8px}
+
+  .btnrow{display:flex; gap:10px; margin-top:14px; flex-wrap:wrap}
+  button{font:inherit; font-weight:600; border-radius:12px; border:1px solid var(--line);
+    padding:12px 16px; background:var(--panel-2); color:var(--ink); cursor:pointer; flex:1 1 auto}
+  button.primary{background:var(--accent); border-color:transparent; color:#fff}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.5; cursor:default}
+
+  details.manual{margin-top:12px}
+  details.manual summary{color:var(--muted); cursor:pointer; font-size:.9rem}
+  .manual input{width:100%; margin-top:10px; padding:12px; border-radius:10px;
+    border:1px solid var(--line); background:#0d1220; color:var(--ink); font:inherit}
+
+  /* Result */
+  .result{display:none}
+  .result.show{display:block}
+  .light-wrap{display:flex; align-items:center; gap:16px}
+  .light{width:76px; height:76px; border-radius:50%; flex:0 0 auto; position:relative;
+    background:var(--gray); box-shadow:inset 0 0 0 3px rgba(255,255,255,.12)}
+  .light.green{background:radial-gradient(circle at 35% 30%, #7ff0af, var(--green)); box-shadow:0 0 26px var(--green)}
+  .light.red{background:radial-gradient(circle at 35% 30%, #ff9a9a, var(--red)); box-shadow:0 0 26px var(--red)}
+  .light.amber{background:radial-gradient(circle at 35% 30%, #ffd98a, var(--amber)); box-shadow:0 0 26px var(--amber)}
+  .light.gray{background:radial-gradient(circle at 35% 30%, #b9c2d6, var(--gray))}
+  .light.checking{animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+  .verdict h2{margin:0 0 2px; font-size:1.3rem}
+  .verdict p{margin:0; color:var(--muted); font-size:.92rem}
+
+  dl.details{display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:16px 0 0;
+    padding-top:14px; border-top:1px solid var(--line); font-size:.92rem}
+  dl.details dt{color:var(--muted)}
+  dl.details dd{margin:0; font-variant-numeric:tabular-nums; word-break:break-all}
+  .verify{margin-top:14px; font-size:.86rem; color:var(--muted)}
+  .verify a{color:var(--accent)}
+  footer{color:var(--muted); font-size:.8rem; text-align:center; margin-top:8px}
+  .err{color:var(--amber); font-size:.9rem; margin-top:10px; display:none}
+  .err.show{display:block}
+  .privacy{display:flex; gap:10px; align-items:flex-start; color:var(--muted); font-size:.86rem;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:var(--radius);
+    padding:12px 14px; margin:0 0 16px}
+  .privacy svg{width:20px;height:20px;flex:0 0 auto;margin-top:1px;opacity:.8;color:var(--green)}
+  .privacy b{color:var(--ink); font-weight:600}
+  .hist-head{display:flex; justify-content:space-between; align-items:baseline; gap:10px}
+  .hist-head h3{margin:0; font-size:1.02rem}
+  .hist-clear{background:none; border:none; color:var(--accent); font:inherit; font-size:.85rem;
+    padding:0; cursor:pointer; flex:0 0 auto}
+  .history{list-style:none; margin:10px 0 0; padding:0}
+  .history li{display:flex; align-items:center; gap:10px; padding:10px 2px;
+    border-top:1px solid var(--line)}
+  .history li:first-child{border-top:none}
+  .dot{width:12px; height:12px; border-radius:50%; flex:0 0 auto; box-shadow:0 0 8px currentColor}
+  .dot.green{background:var(--green); color:var(--green)}
+  .dot.red{background:var(--red); color:var(--red)}
+  .dot.amber{background:var(--amber); color:var(--amber)}
+  .dot.gray{background:var(--gray); color:var(--gray); box-shadow:none}
+  .history .lot{font-variant-numeric:tabular-nums; font-weight:600; word-break:break-all}
+  .history .count{background:var(--panel-2); border:1px solid var(--line); border-radius:999px;
+    padding:1px 8px; font-size:.74rem; color:var(--muted)}
+  .history .vsm{margin-left:auto; color:var(--muted); font-size:.84rem; text-align:right; white-space:nowrap}
+  .hist-note{color:var(--muted); font-size:.8rem; margin:12px 0 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Pod Lot Scanner</h1>
+    <p class="sub">Point your camera at the code on a Pod tray, box, or Pod to check it against the Omnipod MDC-5-26 correction.</p>
+  </header>
+
+  <div class="disclaimer">
+    <strong>Please read.</strong> This is an <strong>unofficial convenience tool</strong> meant to be quicker to use
+    than Omnipod&rsquo;s own checker. It is <strong>not made by, affiliated with, or endorsed by Insulet / Omnipod</strong>.
+    Use it at your own risk and apply your own best judgement. You can and should dummy-check any result against the
+    official company tool at
+    <a href="https://www.omnipod.com/mdc/check-pod-lot" target="_blank" rel="noopener">omnipod.com/mdc/check-pod-lot</a>.
+  </div>
+
+  <div class="card">
+    <div class="guide">
+      <img src="/download.png" alt="The side of the Omnipod box that shows the scannable code"
+           width="640" height="480" loading="lazy">
+      <div class="g-txt">
+        <b>Point the camera at this side of the box.</b>
+        <span>Hold the code so it fills the frame and stays in focus. You can also scan the code on the Pod tray or the Pod itself.</span>
+      </div>
+    </div>
+    <div class="scanbox" id="scanbox">
+      <video id="video" playsinline muted></video>
+      <div class="reticle"></div>
+      <div class="scanhint">Hold the code steady inside the frame</div>
+      <div class="placeholder" id="placeholder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 9V5a2 2 0 0 1 2-2h4M15 3h4a2 2 0 0 1 2 2v4M21 15v4a2 2 0 0 1-2 2h-4M9 21H5a2 2 0 0 1-2-2v-4"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>
+        <div>Camera is off. Tap <b>Scan</b> to start.</div>
+      </div>
+    </div>
+    <div class="btnrow">
+      <button class="primary" id="scanBtn">Scan a code</button>
+      <button id="stopBtn" disabled>Stop</button>
+    </div>
+    <div class="err" id="camErr"></div>
+    <details class="manual">
+      <summary>Enter a code or lot number by hand</summary>
+      <input id="manualInput" placeholder="Paste QR contents or a lot number (e.g. PH1U12142411)"
+             autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <div class="btnrow"><button id="manualBtn">Check this code</button></div>
+    </details>
+  </div>
+
+  <div class="card result" id="result">
+    <div class="light-wrap">
+      <div class="light gray" id="light"></div>
+      <div class="verdict">
+        <h2 id="verdictTitle">—</h2>
+        <p id="verdictSub"></p>
+      </div>
+    </div>
+    <dl class="details" id="detailList"></dl>
+    <div class="verify">
+      Double-check on the official tool:
+      <a id="officialLink" href="https://www.omnipod.com/mdc/check-pod-lot" target="_blank" rel="noopener">omnipod.com/mdc/check-pod-lot</a>
+    </div>
+  </div>
+
+  <div class="card" id="historyCard" style="display:none">
+    <div class="hist-head">
+      <h3>Scanned this session (<span id="histCount">0</span>)</h3>
+      <button class="hist-clear" id="histClear" type="button">Clear</button>
+    </div>
+    <ul class="history" id="history"></ul>
+    <p class="hist-note">Not saved anywhere — this list lives only in this tab and disappears when you close or reload it.</p>
+  </div>
+
+  <div class="privacy">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+    <div><b>Your privacy.</b> All QR-code processing happens right here in your browser. Only the
+      lot number is checked against Omnipod&rsquo;s servers before the result is shown, and it&rsquo;s
+      never written to a log. This site doesn&rsquo;t collect or store any information about you or your Pods.</div>
+  </div>
+
+  <footer>Checks the <b>MDC-5-26</b> (May 26, 2026) Medical Device Correction list · unofficial tool</footer>
+</div>
+
+<script src="/zxing.min.js"></script>
+<script>
+(function(){
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const scanbox=$("scanbox"), video=$("video"), placeholder=$("placeholder");
+  const scanBtn=$("scanBtn"), stopBtn=$("stopBtn"), camErr=$("camErr");
+  const manualInput=$("manualInput"), manualBtn=$("manualBtn");
+  const result=$("result"), light=$("light"), vTitle=$("verdictTitle"),
+        vSub=$("verdictSub"), detailList=$("detailList"), officialLink=$("officialLink");
+
+  // ---- GS1 / QR parsing -------------------------------------------------
+  const GS=""; // FNC1 group separator
+  const FIXED={ "00":18,"01":14,"11":6,"12":6,"13":6,"15":6,"16":6,"17":6,"20":2 };
+
+  function parseCode(raw){
+    if(!raw) return {lot:null};
+    let s=String(raw).trim().replace(/^\][A-Za-z]\d?/,""); // strip symbology id like ]Q3 / ]d2
+    const out={raw:String(raw).trim(), gtin:null, prod:null, exp:null, lot:null, extra:{}};
+    let i=0, safe=0;
+    while(i < s.length && safe++ < 64){
+      const ai=s.substr(i,2);
+      if(FIXED[ai]!=null){
+        const len=FIXED[ai], val=s.substr(i+2,len); i+=2+len;
+        if(ai==="01") out.gtin=val; else if(ai==="11") out.prod=val;
+        else if(ai==="17") out.exp=val; else out.extra[ai]=val;
+      } else if(/^\d{2}$/.test(ai)){
+        let j=i+2; while(j<s.length && s[j]!==GS) j++;
+        const val=s.substring(i+2,j);
+        if(ai==="10") out.lot=val; else out.extra[ai]=val;
+        i = (j<s.length && s[j]===GS) ? j+1 : j;
+      } else break; // not a GS1 stream
+    }
+    // Fallbacks: a Pod lot number starts with "P" and is 12 chars (PH…, PR…, PM…);
+    // else treat a bare alphanumeric entry as the lot.
+    if(!out.lot){
+      const m=out.raw.replace(GS,"").match(/P[A-Za-z0-9]{11}/i);
+      out.lot = m ? m[0].toUpperCase() : (/^[A-Za-z0-9\-]+$/.test(out.raw) ? out.raw.toUpperCase() : null);
+    }
+    return out;
+  }
+
+  function fmtDate(yymmdd){
+    if(!/^\d{6}$/.test(yymmdd||"")) return null;
+    const y=2000+ +yymmdd.slice(0,2), mo=+yymmdd.slice(2,4), d=+yymmdd.slice(4,6);
+    const months=["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    if(mo<1||mo>12) return yymmdd;
+    return (d>=1?d+" ":"")+months[mo]+" "+y+(d<1?" (end of month)":"");
+  }
+
+  // ---- Omnipod check (via same-origin reverse proxy: /pod-lot/ → omnipod) --
+  async function probe(kind, lot){
+    try{
+      const r=await fetch("/pod-lot/"+kind+"?pod_lot="+encodeURIComponent(lot),
+                          {redirect:"manual", cache:"no-store"});
+      return r.status; // 200 = match ; 404 = no match ; 0 = redirect(302, unknown lot)
+    }catch(e){ return -1; } // network / proxy failure
+  }
+  async function classify(lot){
+    const [aff,na]=await Promise.all([probe("affected",lot), probe("not-affected",lot)]);
+    if(aff===200) return {state:"affected"};
+    if(na===200)  return {state:"clear"};
+    if(aff===-1 && na===-1) return {state:"error"};
+    return {state:"unknown"};
+  }
+
+  // ---- Rendering --------------------------------------------------------
+  const VERDICT={
+    checking:{cls:"amber checking", title:"Checking…", sub:"Looking up this lot on the correction list."},
+    clear:   {cls:"green", title:"Not affected", sub:"This lot is NOT on the MDC-5-26 correction list."},
+    affected:{cls:"red",   title:"Affected — do not use", sub:"This lot IS on the correction list. Contact Omnipod for replacements."},
+    unknown: {cls:"amber", title:"Not recognized", sub:"Omnipod didn’t recognize this lot number. Re-scan, or check the official tool."},
+    error:   {cls:"gray",  title:"Couldn’t reach the checker", sub:"Network or proxy problem. Try again, or use the official tool."}
+  };
+  function setLight(state){
+    const v=VERDICT[state]; light.className="light "+v.cls;
+    vTitle.textContent=v.title; vSub.textContent=v.sub;
+  }
+  function renderDetails(p){
+    const rows=[];
+    if(p.lot)  rows.push(["Lot number", p.lot]);
+    if(p.prod) rows.push(["Manufactured", fmtDate(p.prod)||p.prod]);
+    if(p.exp)  rows.push(["Expires", fmtDate(p.exp)||p.exp]);
+    if(p.gtin) rows.push(["Product code (GTIN)", p.gtin]);
+    if(p.raw)  rows.push(["Scanned", p.raw]);
+    detailList.innerHTML=rows.map(([k,v])=>"<dt>"+k+"</dt><dd>"+esc(v)+"</dd>").join("");
+    if(p.lot) officialLink.href="https://www.omnipod.com/mdc/check-pod-lot";
+  }
+  function esc(s){return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+
+  // ---- Supermarket-checkout "beep" (Web Audio, no file needed) ----------
+  let audioCtx=null;
+  function initAudio(){ // call from a user gesture to unlock playback
+    try{
+      if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+      if(audioCtx.state==="suspended") audioCtx.resume().catch(()=>{});
+    }catch(e){ audioCtx=null; }
+  }
+  function beep(){
+    if(!audioCtx) return;
+    try{
+      const t=audioCtx.currentTime;
+      const osc=audioCtx.createOscillator(), g=audioCtx.createGain();
+      osc.type="square"; osc.frequency.setValueAtTime(2000,t); // bright scanner tone
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(0.22,t+0.005); // fast attack
+      g.gain.exponentialRampToValueAtTime(0.0001,t+0.13); // quick decay
+      osc.connect(g).connect(audioCtx.destination);
+      osc.start(t); osc.stop(t+0.15);
+    }catch(e){}
+  }
+
+  // ---- Session scan list (in-memory only — never persisted) -------------
+  const session=new Map(); // lot -> {lot, exp, state, count}
+  const historyCard=$("historyCard"), historyEl=$("history"),
+        histCount=$("histCount"), histClear=$("histClear");
+  const SHORT={ clear:["green","Not affected"], affected:["red","Affected"],
+                unknown:["amber","Not recognized"], error:["gray","Check failed"] };
+  function recordScan(p, state){
+    const prev=session.get(p.lot);
+    if(prev) session.delete(p.lot);            // re-insert to bump to newest
+    session.set(p.lot, {lot:p.lot, exp:p.exp, state, count:prev?prev.count+1:1});
+    renderHistory();
+  }
+  function renderHistory(){
+    const items=[...session.values()].reverse(); // newest first
+    histCount.textContent=items.length;
+    historyEl.innerHTML=items.map(it=>{
+      const [dot,label]=SHORT[it.state]||["gray",it.state];
+      const exp=fmtDate(it.exp);
+      return "<li><span class=\"dot "+dot+"\"></span>"+
+             "<span class=\"lot\">"+esc(it.lot)+"</span>"+
+             (it.count>1?"<span class=\"count\">×"+it.count+"</span>":"")+
+             "<span class=\"vsm\">"+label+(exp?" · exp "+esc(exp):"")+"</span></li>";
+    }).join("");
+    historyCard.style.display = items.length ? "" : "none";
+  }
+  histClear.addEventListener("click", ()=>{ session.clear(); renderHistory(); });
+
+  let busy=false, lastCheckedLot=null;
+  async function handleCode(raw){
+    const p=parseCode(raw);
+    result.classList.add("show");
+    renderDetails(p);
+    if(!p.lot){ setLight("unknown"); vTitle.textContent="No lot number found";
+      vSub.textContent="Couldn’t read a lot number from that code."; return; }
+    beep(); // recognized a lot — beep like a checkout scanner
+    busy=true; lastCheckedLot=p.lot;
+    setLight("checking");
+    result.scrollIntoView({behavior:"smooth", block:"nearest"});
+    let state="error";
+    try{ const r=await classify(p.lot); state=r.state; setLight(state); }
+    finally{ busy=false; }
+    recordScan(p, state);
+  }
+
+  // ---- Camera + decoding ------------------------------------------------
+  // Prefer the browser's native BarcodeDetector (uses the OS decoder — e.g.
+  // Apple Vision on macOS Chrome, or Android's — far more robust than ZXing,
+  // especially for DataMatrix). Fall back to ZXing where it's unavailable.
+  // We run our OWN frame loop so the camera stays on until Stop / tab close.
+  let stream=null, timer=null, scanning=false;
+  let detector=null, zxing=null, canvas=null, cctx=null;
+  let lastHit={code:null, t:0};
+  const now=()=> (window.performance&&performance.now)?performance.now():Date.now();
+
+  async function buildDetectors(){
+    if(("BarcodeDetector" in window) && !detector){
+      try{
+        const sup=await window.BarcodeDetector.getSupportedFormats();
+        const want=["qr_code","data_matrix"].filter(f=>sup.includes(f));
+        detector=new window.BarcodeDetector({formats: want.length?want:["qr_code"]});
+      }catch(e){ detector=null; }
+    }
+    if(!detector && !zxing){ // ZXing fallback
+      const hints=new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.QR_CODE,ZXing.BarcodeFormat.DATA_MATRIX]);
+      hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
+      zxing=new ZXing.MultiFormatReader(); zxing.setHints(hints);
+      canvas=document.createElement("canvas"); cctx=canvas.getContext("2d",{willReadFrequently:true});
+    }
+  }
+
+  async function detectFrame(){
+    if(!video.videoWidth) return null;
+    if(detector){
+      try{ const codes=await detector.detect(video); if(codes && codes.length) return codes[0].rawValue; }
+      catch(e){}
+      return null;
+    }
+    const w=video.videoWidth, h=video.videoHeight;
+    canvas.width=w; canvas.height=h; cctx.drawImage(video,0,0,w,h);
+    let argb;
+    try{
+      const d=cctx.getImageData(0,0,w,h).data; argb=new Int32Array(w*h);
+      for(let i=0;i<w*h;i++) argb[i]=(0xff<<24)|(d[i*4]<<16)|(d[i*4+1]<<8)|d[i*4+2];
+      const src=new ZXing.RGBLuminanceSource(argb,w,h);
+      const bmp=new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src));
+      const res=zxing.decode(bmp); zxing.reset(); return res.getText();
+    }catch(e){ try{zxing.reset();}catch(_){}; return null; }
+  }
+
+  async function loop(){
+    if(!scanning) return;
+    if(!busy){
+      let text=null; try{ text=await detectFrame(); }catch(e){}
+      if(text){
+        const t=now();
+        if(text!==lastHit.code || t-lastHit.t>4000){
+          lastHit={code:text, t};
+          if(navigator.vibrate){ try{navigator.vibrate(60);}catch(e){} }
+          handleCode(text); // NOTE: we do NOT stop — keep scanning the next Pod
+        }
+      }
+    }
+    timer=setTimeout(loop, detector?170:320); // ZXing path is heavier, pace it slower
+  }
+
+  function showCamErr(m){ camErr.textContent=m; camErr.classList.add("show"); }
+
+  async function startScan(){
+    camErr.classList.remove("show");
+    initAudio(); // unlock the checkout beep on this user gesture
+    if(!window.isSecureContext){ showCamErr("Camera needs a secure (https) connection."); return; }
+    if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){
+      showCamErr("This browser can’t open the camera. Enter the code by hand below."); return; }
+    try{
+      await buildDetectors();
+      stream=await navigator.mediaDevices.getUserMedia({
+        audio:false,
+        video:{ facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1080} }
+      });
+      video.srcObject=stream; video.setAttribute("playsinline","");
+      await video.play();
+      try{ // ask for continuous autofocus where the device supports it
+        const track=stream.getVideoTracks()[0];
+        const caps=track.getCapabilities?track.getCapabilities():{};
+        if(caps.focusMode && caps.focusMode.indexOf("continuous")>=0)
+          await track.applyConstraints({advanced:[{focusMode:"continuous"}]});
+      }catch(e){}
+      scanbox.classList.add("live"); placeholder.style.display="none";
+      scanBtn.disabled=true; stopBtn.disabled=false; scanning=true;
+      lastHit={code:null,t:0};
+      loop();
+    }catch(e){
+      stopScan();
+      showCamErr((e && e.name==="NotAllowedError")
+        ? "Camera permission was denied. Allow it in your browser settings, or enter the code by hand below."
+        : "Couldn’t start the camera. Enter the code by hand below.");
+    }
+  }
+
+  function stopScan(){
+    scanning=false;
+    if(timer){ clearTimeout(timer); timer=null; }
+    if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+    try{ video.srcObject=null; }catch(e){}
+    scanbox.classList.remove("live"); placeholder.style.display="";
+    scanBtn.disabled=false; stopBtn.disabled=true;
+  }
+
+  scanBtn.addEventListener("click", startScan);
+  stopBtn.addEventListener("click", stopScan);
+  manualBtn.addEventListener("click", ()=>{ initAudio(); const v=manualInput.value.trim(); if(v) handleCode(v); });
+  manualInput.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); manualBtn.click(); }});
+})();
+</script>
+</body>
+</html>
