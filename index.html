@@ -198,7 +198,6 @@
   <footer>Checks the <b>MDC-5-26</b> (May 26, 2026) Medical Device Correction list · unofficial tool</footer>
 </div>
 
-<script src="/zxing.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -217,19 +216,30 @@
     if(!raw) return {lot:null};
     let s=String(raw).trim().replace(/^\][A-Za-z]\d?/,""); // strip symbology id like ]Q3 / ]d2
     const out={raw:String(raw).trim(), gtin:null, prod:null, exp:null, lot:null, extra:{}};
-    let i=0, safe=0;
-    while(i < s.length && safe++ < 64){
-      const ai=s.substr(i,2);
-      if(FIXED[ai]!=null){
-        const len=FIXED[ai], val=s.substr(i+2,len); i+=2+len;
+    if(/\(\d{2,4}\)/.test(s)){
+      // Human-readable GS1 form (zxing-wasm): (01)…(11)…(17)…(10)…
+      let m; const re=/\((\d{2,4})\)([^(]*)/g;
+      while((m=re.exec(s))){
+        const ai=m[1], val=m[2].trim();
         if(ai==="01") out.gtin=val; else if(ai==="11") out.prod=val;
-        else if(ai==="17") out.exp=val; else out.extra[ai]=val;
-      } else if(/^\d{2}$/.test(ai)){
-        let j=i+2; while(j<s.length && s[j]!==GS) j++;
-        const val=s.substring(i+2,j);
-        if(ai==="10") out.lot=val; else out.extra[ai]=val;
-        i = (j<s.length && s[j]===GS) ? j+1 : j;
-      } else break; // not a GS1 stream
+        else if(ai==="17") out.exp=val; else if(ai==="10") out.lot=val; else out.extra[ai]=val;
+      }
+    } else {
+      // Raw concatenated GS1 stream (native BarcodeDetector / manual paste)
+      let i=0, safe=0;
+      while(i < s.length && safe++ < 64){
+        const ai=s.substr(i,2);
+        if(FIXED[ai]!=null){
+          const len=FIXED[ai], val=s.substr(i+2,len); i+=2+len;
+          if(ai==="01") out.gtin=val; else if(ai==="11") out.prod=val;
+          else if(ai==="17") out.exp=val; else out.extra[ai]=val;
+        } else if(/^\d{2}$/.test(ai)){
+          let j=i+2; while(j<s.length && s[j]!==GS) j++;
+          const val=s.substring(i+2,j);
+          if(ai==="10") out.lot=val; else out.extra[ai]=val;
+          i = (j<s.length && s[j]===GS) ? j+1 : j;
+        } else break; // not a GS1 stream
+      }
     }
     // Fallbacks: a Pod lot number starts with "P" and is 12 chars (PH…, PR…, PM…);
     // else treat a bare alphanumeric entry as the lot.
@@ -355,30 +365,41 @@
   }
 
   // ---- Camera + decoding ------------------------------------------------
-  // Prefer the browser's native BarcodeDetector (uses the OS decoder — e.g.
-  // Apple Vision on macOS Chrome, or Android's — far more robust than ZXing,
-  // especially for DataMatrix). Fall back to ZXing where it's unavailable.
-  // We run our OWN frame loop so the camera stays on until Stop / tab close.
+  // Prefer the browser's native BarcodeDetector when it can read DataMatrix
+  // (Android / macOS Chrome — Apple Vision or the OS decoder, fast & efficient).
+  // Otherwise (notably iOS Safari, which has NO BarcodeDetector) fall back to
+  // zxing-wasm — the zxing-C++ engine in WebAssembly, a far stronger DataMatrix
+  // reader, vendored locally. We run our OWN frame loop so the camera stays on
+  // until Stop / tab close.
   let stream=null, timer=null, scanning=false;
-  let detector=null, zxing=null, canvas=null, cctx=null;
+  let detector=null, detectorTried=false, canvas=null, cctx=null;
+  let wasmReadyP=null;
   let lastHit={code:null, t:0};
   const now=()=> (window.performance&&performance.now)?performance.now():Date.now();
 
+  function ensureWasm(){ // lazy-load the WASM decoder only when we need it
+    if(wasmReadyP) return wasmReadyP;
+    wasmReadyP=import("/zxing-reader.js").then(m=>{
+      m.setZXingModuleOverrides({ locateFile:(p)=> p.slice(-5)===".wasm" ? "/zxing_reader.wasm" : p });
+      return (imageData)=> m.readBarcodes(imageData,
+        { tryHarder:true, formats:["DataMatrix","QRCode"], maxNumberOfSymbols:1 });
+    }).catch(()=>{ wasmReadyP=null; return null; });
+    return wasmReadyP;
+  }
+
   async function buildDetectors(){
-    if(("BarcodeDetector" in window) && !detector){
+    if(("BarcodeDetector" in window) && !detectorTried){
+      detectorTried=true;
       try{
         const sup=await window.BarcodeDetector.getSupportedFormats();
-        const want=["qr_code","data_matrix"].filter(f=>sup.includes(f));
-        detector=new window.BarcodeDetector({formats: want.length?want:["qr_code"]});
+        if(sup.indexOf("data_matrix")>=0){ // only trust native if it does DataMatrix
+          const want=["qr_code","data_matrix"].filter(f=>sup.indexOf(f)>=0);
+          detector=new window.BarcodeDetector({formats:want});
+        }
       }catch(e){ detector=null; }
     }
-    if(!detector && !zxing){ // ZXing fallback
-      const hints=new Map();
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.QR_CODE,ZXing.BarcodeFormat.DATA_MATRIX]);
-      hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
-      zxing=new ZXing.MultiFormatReader(); zxing.setHints(hints);
-      canvas=document.createElement("canvas"); cctx=canvas.getContext("2d",{willReadFrequently:true});
-    }
+    if(!canvas){ canvas=document.createElement("canvas"); cctx=canvas.getContext("2d",{willReadFrequently:true}); }
+    if(!detector) ensureWasm(); // start fetching the WASM now so it's warm
   }
 
   async function detectFrame(){
@@ -388,16 +409,13 @@
       catch(e){}
       return null;
     }
+    const read=await ensureWasm();
+    if(!read) return null;
     const w=video.videoWidth, h=video.videoHeight;
     canvas.width=w; canvas.height=h; cctx.drawImage(video,0,0,w,h);
-    let argb;
-    try{
-      const d=cctx.getImageData(0,0,w,h).data; argb=new Int32Array(w*h);
-      for(let i=0;i<w*h;i++) argb[i]=(0xff<<24)|(d[i*4]<<16)|(d[i*4+1]<<8)|d[i*4+2];
-      const src=new ZXing.RGBLuminanceSource(argb,w,h);
-      const bmp=new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src));
-      const res=zxing.decode(bmp); zxing.reset(); return res.getText();
-    }catch(e){ try{zxing.reset();}catch(_){}; return null; }
+    let id; try{ id=cctx.getImageData(0,0,w,h); }catch(e){ return null; }
+    try{ const res=await read(id); if(res && res.length && res[0].text) return res[0].text; }catch(e){}
+    return null;
   }
 
   async function loop(){
@@ -413,7 +431,7 @@
         }
       }
     }
-    timer=setTimeout(loop, detector?170:320); // ZXing path is heavier, pace it slower
+    timer=setTimeout(loop, detector?170:280); // WASM path is heavier, pace it a touch slower
   }
 
   function showCamErr(m){ camErr.textContent=m; camErr.classList.add("show"); }
